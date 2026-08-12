@@ -7,7 +7,7 @@ Módulo principal del juego. Orquesta todos los subsistemas:
 - Control de estados (jugando, pausa, fin_partido).
 - Sprint con Shift (velocidad y consumo de stamina aumentados).
 - Velocidad reducida gradualmente por fatiga.
-- Pase rápido con Ctrl+Z (devolver al último pasador).
+- Pase rápido con Z (devolver al último pasador).
 - Cambio de jugador controlado al balón (Q).
 - Interfaz para el frontend (renderizado e input).
 - Reinicio inmediato tras gol (sin pausa).
@@ -39,7 +39,6 @@ from .tactics import (
     aplicar_tactica_a_equipo,
     actualizar_tactica_segun_marcador
 )
-# Importar formaciones y _posicion_base desde tactics.base (nueva ubicación)
 from .tactics.base import FORMACION_LOCAL, FORMACION_RIVAL, _posicion_base
 from .dribbling import (
     ejecutar_regate,
@@ -57,7 +56,8 @@ from .ball_control import (
     puede_interceptar_pase,
     ejecutar_pase_por_direccion,
     hay_linea_pase,
-    distancia_a_segmento
+    distancia_a_segmento,
+    encontrar_companero_mas_cercano
 )
 from .match_events import MatchEvents, Tarjeta, Lesion, EventoPartido
 from .fatigue import FatigueManager
@@ -91,7 +91,7 @@ class Partido:
         # --- Control de cambios de táctica (evita spam) ---
         self.ultimo_cambio_tactica = 0
 
-        # --- Historial de pases (para Ctrl+Z) ---
+        # --- Historial de pases (para Z) ---
         self.ultimo_pasador = None
         self.ultimo_receptor = None
 
@@ -170,11 +170,11 @@ class Partido:
         return equipo
 
     def _generar_posiciones_iniciales(self, lado):
-        """Genera posiciones para 11 jugadores en formación 4-4-2 usando _posicion_base."""
+        """Genera posiciones para 11 jugadores en formación 4-4-2."""
         formacion = FORMACION_LOCAL if lado == "left" else FORMACION_RIVAL
         posiciones = []
         for i in range(11):
-            x, y = _posicion_base(i, lado == "left")  # True para local, False para rival
+            x, y = _posicion_base(i, lado == "left")
             x += random.uniform(-10, 10)
             y += random.uniform(-10, 10)
             posiciones.append((x, y))
@@ -239,10 +239,12 @@ class Partido:
         self.jugador_humano.mover(dx, dy, velocidad, sprint=sprint)
 
     def lanzar_balon(self, fuerza_x=0, fuerza_y=-400):
+        """Método para tiros (no para pases)."""
         if self.estado != "jugando" or self.jugador_humano is None:
             return
         if not self.jugador_humano.tiene_balon:
             return
+
         porteria_x = SCREEN_WIDTH if self.jugador_humano.equipo == "Local" else 0
         porteria_y = SCREEN_HEIGHT // 2
         dist_porteria = distancia_objetos(self.jugador_humano,
@@ -251,22 +253,30 @@ class Partido:
             exito = ejecutar_tiro(self.jugador_humano, self.pelota)
             if exito:
                 self.eventos.registrar_evento(EventoPartido("TIRO", self.jugador_humano, "a puerta"))
+                # Limpiar historial de pases porque es un tiro
                 self.ultimo_pasador = None
                 self.ultimo_receptor = None
 
     # ------------------------------------------------------------
-    #  Método para Ctrl+Z (devolución rápida)
+    #  Método para devolución con Z
     # ------------------------------------------------------------
-    def pase_rapido_ctrl_z(self):
+    def devolver_pase(self):
+        """
+        Devuelve la pelota al último pasador si:
+        - El último receptor tiene el balón.
+        - Existe línea de pase libre entre el receptor y el pasador.
+        """
         if self.ultimo_pasador is None or self.ultimo_receptor is None:
-            return
+            return False
         if not self.ultimo_receptor.tiene_balon:
-            return
-        if hay_linea_pase(self.ultimo_receptor, self.ultimo_pasador, self.equipo_rival, radio_deteccion=50):
+            return False
+        if hay_linea_pase(self.ultimo_receptor, self.ultimo_pasador, self.equipo_rival, radio_deteccion=40):
             exito = ejecutar_pase(self.ultimo_receptor, self.ultimo_pasador, self.pelota, es_largo=False)
             if exito:
+                # Intercambiar roles para la siguiente devolución
                 self.ultimo_pasador, self.ultimo_receptor = self.ultimo_receptor, self.ultimo_pasador
-                self.eventos.registrar_evento(EventoPartido("PASE_RAPIDO", self.ultimo_pasador, self.ultimo_receptor))
+                return True
+        return False
 
     # ------------------------------------------------------------
     #  Cambio de jugador controlado al balón (Q)
@@ -504,6 +514,7 @@ class Partido:
         for jug in self.equipo_local.jugadores + self.equipo_rival.jugadores:
             if hasattr(jug, 'stats'):
                 jug.stats.recuperar_cansancio(1.0)
+        # Resetear historial de pases
         self.ultimo_pasador = None
         self.ultimo_receptor = None
 

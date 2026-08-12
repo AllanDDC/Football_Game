@@ -1,7 +1,8 @@
 # backend/ball_control.py
 """
 Módulo especializado en el control del balón.
-VELOCIDADES REDUCIDAS 100 VECES para que la pelota sea visible.
+VELOCIDADES REDUCIDAS 200 VECES con respecto a las originales
+para que la pelota sea perfectamente visible.
 """
 
 import math
@@ -38,6 +39,9 @@ def calcular_precision_pase(pasador, distancia, es_pase_largo=False):
 
 
 def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
+    """
+    Ejecuta un pase con velocidades extremadamente lentas.
+    """
     if receptor:
         distancia = distancia_objetos(pasador, receptor)
     else:
@@ -51,13 +55,13 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
 
     if exito:
         if receptor:
-            # --- VELOCIDAD 100 VECES MÁS LENTA ---
-            # Pase corto: 0.4 - 0.7 px/s (antes 40-70)
-            # Pase largo: 0.6 - 1.0 px/s (antes 60-100)
+            # --- VELOCIDAD 200 VECES MÁS LENTA ---
+            # Pase corto: 0.002 - 0.0035 px/s
+            # Pase largo: 0.003 - 0.005 px/s
             if es_largo:
-                velocidad_base = (60 + 40 * (1 - precision)) / 100.0
+                velocidad_base = (60 + 40 * (1 - precision)) / 200.0
             else:
-                velocidad_base = (40 + 30 * (1 - precision)) / 100.0
+                velocidad_base = (40 + 30 * (1 - precision)) / 200.0
 
             dx = receptor.x - pasador.x
             dy = receptor.y - pasador.y
@@ -73,11 +77,11 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
                 pelota.y = pasador.y - pasador.radio - pelota.radio - 10
 
             if es_largo:
-                pelota.vy -= 0.2  # efecto de arco mínimo
+                pelota.vy -= 0.1  # efecto de arco mínimo
         else:
-            # Pase al espacio: 0.3 - 0.7 px/s
+            # Pase al espacio: 0.0015 - 0.0035 px/s
             angulo = random.uniform(0, 2 * math.pi)
-            velocidad = (30 + random.uniform(0, 40)) / 100.0
+            velocidad = (30 + random.uniform(0, 40)) / 200.0
             pelota.vx = math.cos(angulo) * velocidad
             pelota.vy = math.sin(angulo) * velocidad
             pelota.x = pasador.x + math.cos(angulo) * (pasador.radio + pelota.radio + 20)
@@ -88,9 +92,9 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
         pasador.tiene_balon = False
         return True
     else:
-        # Pase fallido: 0.15 - 0.4 px/s
+        # Pase fallido: 0.00075 - 0.002 px/s
         angulo = random.uniform(0, 2 * math.pi)
-        velocidad = random.uniform(15, 40) / 100.0
+        velocidad = random.uniform(15, 40) / 200.0
         pelota.vx = math.cos(angulo) * velocidad
         pelota.vy = math.sin(angulo) * velocidad
         pelota.x = pasador.x + math.cos(angulo) * (pasador.radio + pelota.radio + 10)
@@ -102,6 +106,10 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
 
 
 def ejecutar_pase_por_direccion(pasador, dx, dy, pelota, equipos, es_largo=False, solo_companeros=True):
+    """
+    Busca el receptor más cercano en la dirección indicada (60 grados).
+    Solo pasa a compañeros si solo_companeros=True (siempre debe ser True).
+    """
     equipo_pasador = None
     for eq in equipos:
         if pasador in eq.jugadores:
@@ -124,7 +132,7 @@ def ejecutar_pase_por_direccion(pasador, dx, dy, pelota, equipos, es_largo=False
         diff = abs(angulo_dir - angulo_comp)
         if diff > math.pi:
             diff = 2 * math.pi - diff
-        if diff < math.pi / 3:
+        if diff < math.pi / 3:  # 60 grados
             dist = math.hypot(dxc, dyc)
             if dist < mejor_dist:
                 mejor_dist = dist
@@ -162,9 +170,9 @@ def intentar_recibir(receptor, pelota):
         receptor.recoger_balon(pelota)
         return True
     else:
-        # Rebote: 0.15 - 0.35 px/s
+        # Rebote: 0.00075 - 0.00175 px/s
         angulo = random.uniform(0, 2 * math.pi)
-        velocidad = random.uniform(15, 35) / 100.0
+        velocidad = random.uniform(15, 35) / 200.0
         pelota.vx = math.cos(angulo) * velocidad
         pelota.vy = math.sin(angulo) * velocidad
         pelota.pegada = False
@@ -202,8 +210,8 @@ def ejecutar_tiro(tirador, pelota):
     if hasattr(tirador, 'stats'):
         tirador.stats.registrar_tiro(exito)
 
-    # Tiro: 1.5 - 3.0 px/s (antes 150-300)
-    potencia = (150 + 150 * (tirador.stats.tiro / 100.0 if hasattr(tirador, 'stats') else 0.5)) / 100.0
+    # Tiro: 0.0075 - 0.015 px/s
+    potencia = (150 + 150 * (tirador.stats.tiro / 100.0 if hasattr(tirador, 'stats') else 0.5)) / 200.0
     potencia *= (1.0 - tirador.stats.fatiga / 300.0 if hasattr(tirador, 'stats') else 1.0)
 
     if exito:
@@ -240,8 +248,8 @@ def aplicar_conduccion(jugador, pelota, dt):
     dx = jugador.vx / velocidad
     dy = jugador.vy / velocidad
 
-    # Conducción extremadamente corta
-    distancia = 2 + velocidad * 0.005  # antes 6 + vel*0.02
+    # Conducción extremadamente corta (no se modifica por la velocidad)
+    distancia = 2 + velocidad * 0.005
     variacion = random.uniform(-1, 1)
     pelota.x = jugador.x + dx * (distancia + variacion)
     pelota.y = jugador.y + dy * (distancia + variacion)
@@ -273,6 +281,10 @@ def distancia_a_segmento(px, py, x1, y1, x2, y2):
 
 
 def hay_linea_pase(jug1, jug2, equipo_rival, radio_deteccion=50):
+    """
+    Verifica que no haya rivales en la línea entre jug1 y jug2.
+    Retorna True si hay línea de pase libre.
+    """
     for rival in equipo_rival.jugadores:
         if distancia_a_segmento(rival.x, rival.y, jug1.x, jug1.y, jug2.x, jug2.y) < radio_deteccion:
             return False
@@ -293,6 +305,29 @@ def puede_interceptar_pase(defensor, pelota, pasador, receptor):
                 prob = 0.5
             return random.random() < prob
     return False
+
+
+# ------------------------------------------------------------
+#  Funciones adicionales para pase por proximidad
+# ------------------------------------------------------------
+def encontrar_companero_mas_cercano(pasador, companeros, equipo_rival, radio_max=500):
+    """
+    Encuentra el compañero más cercano que tenga línea de pase libre.
+    Retorna el jugador o None.
+    """
+    mejor = None
+    mejor_dist = float('inf')
+    for comp in companeros:
+        if comp == pasador or comp.tiene_balon:
+            continue
+        # Verificar línea de pase libre
+        if not hay_linea_pase(pasador, comp, equipo_rival, radio_deteccion=40):
+            continue
+        dist = distancia_objetos(pasador, comp)
+        if dist < mejor_dist and dist < radio_max:
+            mejor_dist = dist
+            mejor = comp
+    return mejor
 
 
 # ------------------------------------------------------------
