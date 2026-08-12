@@ -213,21 +213,11 @@ def _asegurar_stats(equipo):
 #  Resolver contacto (llamado desde game.py)
 # ------------------------------------------------------------
 def resolver_contacto_jugadores(jug1, jug2):
-    if jug1.tiene_balon and jug2.equipo != jug1.equipo:
-        if intentar_robo(jug2, jug1):
-            if jug1.tiene_balon:
-                jug1.tiene_balon = False
-                jug1.pelota.dueno = None
-                jug1.pelota.pegada = False
-                angulo = random.uniform(0, 2 * math.pi)
-                velocidad = random.uniform(50, 150)
-                jug1.pelota.vx = math.cos(angulo) * velocidad
-                jug1.pelota.vy = math.sin(angulo) * velocidad
-                if hasattr(jug2, 'stats'):
-                    jug2.stats.registrar_robo()
-                if hasattr(jug1, 'stats'):
-                    jug1.stats.registrar_regate(False)
-                return True
+    # Verificar que realmente están en contacto
+    dist = distancia_objetos(jug1, jug2)
+    if dist >= (jug1.radio + jug2.radio):
+        return False
+    # Resto igual...
     elif jug2.tiene_balon and jug1.equipo != jug2.equipo:
         if intentar_robo(jug1, jug2):
             if jug2.tiene_balon:
