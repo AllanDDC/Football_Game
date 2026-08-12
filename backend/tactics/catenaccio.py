@@ -116,13 +116,23 @@ class Catenaccio(TacticaBase):
             porteria_x = SCREEN_WIDTH if es_local else 0
             porteria_y = SCREEN_HEIGHT // 2
 
-            if poseedor is not None and (es_local and poseedor.x < SCREEN_WIDTH * 0.6) or (not es_local and poseedor.x > SCREEN_WIDTH * 0.4):
+            # --- Verificar si el poseedor está en nuestro campo ---
+            en_nuestro_campo = False
+            if poseedor is not None:
+                if es_local and poseedor.x < SCREEN_WIDTH * 0.6:
+                    en_nuestro_campo = True
+                elif not es_local and poseedor.x > SCREEN_WIDTH * 0.4:
+                    en_nuestro_campo = True
+
+            if en_nuestro_campo:
+                # Retroceder para ayudar en defensa
                 retroceso_x = porteria_x + (SCREEN_WIDTH // 2 - porteria_x) * (1 - 0.8 * 0.7)
                 destino = type('obj', (object,), {'x': retroceso_x, 'y': porteria_y + math.sin(jug.numero) * 50})()
                 vx, vy = mover_hacia(jug, destino, velocidad_base * 0.6, dt)
                 jug.establecer_velocidad(vx, vy)
                 jug.actualizar(dt)
             else:
+                # Mantenerse en zona ofensiva (esperando contraataque)
                 angulo = math.sin(jug.numero * 1.5) * 1.2
                 radio = 70 + (i - 9) * 20
                 destino_x = porteria_x + math.cos(angulo) * radio
