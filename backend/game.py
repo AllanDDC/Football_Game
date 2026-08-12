@@ -19,7 +19,7 @@ from .config import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     PLAYER_RADIUS, BALL_RADIUS,
     PLAYER_SPEED,
-    SPRINT_MULTIPLIER,   # <--- importación añadida
+    SPRINT_MULTIPLIER,
     GOAL_HEIGHT, GOAL_DEPTH,
     COLORS
 )
@@ -34,7 +34,13 @@ from .physics import (
     conducir_balon
 )
 from .ai import actualizar_ia, resolver_contacto_jugadores, calcular_precision_pase
-from .tactics import aplicar_tactica_a_equipo, actualizar_tactica_segun_marcador, TACTICAS
+from .tactics import (
+    TACTICAS,
+    aplicar_tactica_a_equipo,
+    actualizar_tactica_segun_marcador
+)
+# Importar formaciones y _posicion_base desde tactics.base (nueva ubicación)
+from .tactics.base import FORMACION_LOCAL, FORMACION_RIVAL, _posicion_base
 from .dribbling import (
     ejecutar_regate,
     calcular_probabilidad_regate,
@@ -164,11 +170,11 @@ class Partido:
         return equipo
 
     def _generar_posiciones_iniciales(self, lado):
-        from .ai import FORMACION_LOCAL, FORMACION_RIVAL, _posicion_base
+        """Genera posiciones para 11 jugadores en formación 4-4-2 usando _posicion_base."""
         formacion = FORMACION_LOCAL if lado == "left" else FORMACION_RIVAL
         posiciones = []
         for i in range(11):
-            x, y = _posicion_base(i, formacion)
+            x, y = _posicion_base(i, lado == "left")  # True para local, False para rival
             x += random.uniform(-10, 10)
             y += random.uniform(-10, 10)
             posiciones.append((x, y))
@@ -220,16 +226,9 @@ class Partido:
     #  Métodos de control del jugador humano (con sprint y fatiga)
     # ------------------------------------------------------------
     def mover_jugador(self, dx, dy, sprint=False):
-        """
-        Mueve al jugador humano con velocidad ajustada por sprint y fatiga.
-        """
         if self.estado != "jugando" or self.jugador_humano is None:
             return
-
-        # Velocidad base: PLAYER_SPEED, con sprint multiplica por SPRINT_MULTIPLIER
         velocidad_base = PLAYER_SPEED * (SPRINT_MULTIPLIER if sprint else 1.0)
-
-        # Aplicar reducción gradual por fatiga
         if hasattr(self.jugador_humano, 'stats'):
             fatiga = self.jugador_humano.stats.fatiga
             factor_fatiga = 1.0 - (fatiga / 100.0) * 0.7
@@ -237,16 +236,13 @@ class Partido:
             velocidad = velocidad_base * factor_fatiga
         else:
             velocidad = velocidad_base
-
         self.jugador_humano.mover(dx, dy, velocidad, sprint=sprint)
 
     def lanzar_balon(self, fuerza_x=0, fuerza_y=-400):
-        """Método heredado, ahora se usa principalmente para tiros."""
         if self.estado != "jugando" or self.jugador_humano is None:
             return
         if not self.jugador_humano.tiene_balon:
             return
-
         porteria_x = SCREEN_WIDTH if self.jugador_humano.equipo == "Local" else 0
         porteria_y = SCREEN_HEIGHT // 2
         dist_porteria = distancia_objetos(self.jugador_humano,
@@ -262,11 +258,6 @@ class Partido:
     #  Método para Ctrl+Z (devolución rápida)
     # ------------------------------------------------------------
     def pase_rapido_ctrl_z(self):
-        """
-        Devuelve la pelota al último pasador si:
-        - El último receptor tiene el balón.
-        - Existe línea de pase libre entre el receptor y el pasador.
-        """
         if self.ultimo_pasador is None or self.ultimo_receptor is None:
             return
         if not self.ultimo_receptor.tiene_balon:
@@ -281,10 +272,6 @@ class Partido:
     #  Cambio de jugador controlado al balón (Q)
     # ------------------------------------------------------------
     def cambiar_jugador_controlado_al_balon(self):
-        """
-        Cambia el control al jugador del equipo local que tiene el balón.
-        Si nadie tiene el balón, cambia al más cercano al balón.
-        """
         equipo = self.equipo_local
         jugador_con_balon = None
         for jug in equipo.jugadores:
