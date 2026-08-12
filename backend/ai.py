@@ -1,8 +1,8 @@
 # backend/ai.py
 """
 Módulo de inteligencia artificial para jugadores no controlados.
-Comportamientos mejorados: respeto de formaciones, presión en zona,
-repliegue defensivo en bloque, y sprint en persecuciones.
+Ahora utiliza un sistema táctico modular, delegando el comportamiento
+defensivo, de mediocampo y ofensivo en las clases de táctica.
 """
 
 import math
@@ -28,54 +28,18 @@ from .physics import (
     probabilidad_regate,
     probabilidad_robo
 )
-from .tactics import (
-    TACTICAS,
-    obtener_distancia_presion,
-    obtener_factor_posesion,
-    obtener_factor_pase_largo,
-    obtener_frecuencia_regate,
-    obtener_profundidad_defensiva,
-    obtener_altura_delanteros_defensiva,
-    aplicar_tactica_a_equipo
-)
+from .tactics import TACTICAS_CLASES
+from .tactics.tiki_taka import TikiTaka  # fallback
 from .player_stats import PlayerStats
 from .ball_control import ejecutar_pase, intentar_recibir, ejecutar_tiro
 
 
 # ------------------------------------------------------------
-#  Posiciones base para formaciones (4-4-2 estándar)
+#  Funciones auxiliares (compartidas con las tácticas)
 # ------------------------------------------------------------
-FORMACION_LOCAL = [
-    (0.10, 0.50),  # Portero (0)
-    (0.25, 0.20),  # Defensa 1
-    (0.25, 0.35),  # Defensa 2
-    (0.25, 0.65),  # Defensa 3
-    (0.25, 0.80),  # Defensa 4
-    (0.45, 0.20),  # Mediocampista 1
-    (0.45, 0.40),  # Mediocampista 2
-    (0.45, 0.60),  # Mediocampista 3
-    (0.45, 0.80),  # Mediocampista 4
-    (0.70, 0.30),  # Delantero 1
-    (0.70, 0.70),  # Delantero 2
-]
-
-FORMACION_RIVAL = [
-    (0.90, 0.50),  # Portero
-    (0.75, 0.20),  # Defensa 1
-    (0.75, 0.35),  # Defensa 2
-    (0.75, 0.65),  # Defensa 3
-    (0.75, 0.80),  # Defensa 4
-    (0.55, 0.20),  # Mediocampista 1
-    (0.55, 0.40),  # Mediocampista 2
-    (0.55, 0.60),  # Mediocampista 3
-    (0.55, 0.80),  # Mediocampista 4
-    (0.30, 0.30),  # Delantero 1
-    (0.30, 0.70),  # Delantero 2
-]
-
-
 def _posicion_base(indice, formacion):
     """Retorna la posición base (x, y) en píxeles para un jugador dado su índice y formación."""
+    from .tactics.base import FORMACION_LOCAL, FORMACION_RIVAL
     if indice < len(formacion):
         fx, fy = formacion[indice]
         return (fx * SCREEN_WIDTH, fy * SCREEN_HEIGHT)
@@ -85,7 +49,7 @@ def _posicion_base(indice, formacion):
 def _get_velocidad_efectiva(jug, factor=0.5, sprint=False):
     """
     Calcula la velocidad efectiva del jugador considerando estadísticas, fatiga y sprint.
-    Si sprint=True, se multiplica por SPRINT_MULTIPLIER (igual que el humano).
+    Esta función se usa tanto desde ai.py como desde las tácticas.
     """
     velocidad_base = PLAYER_SPEED * factor
     if hasattr(jug, 'stats'):
@@ -100,10 +64,10 @@ def _get_velocidad_efectiva(jug, factor=0.5, sprint=False):
 
 
 # ------------------------------------------------------------
-#  Función principal de actualización de IA
+#  Función principal de actualización de IA (usa tácticas)
 # ------------------------------------------------------------
 def actualizar_ia(equipo_local, equipo_rival, pelota, dt, tiempo_partido=90):
-    # Identificar jugadores clave
+    # Identificar jugador humano (solo para referencia, no se usa en tácticas)
     jugador_humano = None
     jugador_con_balon = None
 
@@ -121,21 +85,28 @@ def actualizar_ia(equipo_local, equipo_rival, pelota, dt, tiempo_partido=90):
     _asegurar_stats(equipo_local)
     _asegurar_stats(equipo_rival)
 
-    # Aplicar tácticas si no existen
-    if not hasattr(equipo_local, 'tactica_actual'):
-        aplicar_tactica_a_equipo(equipo_local, "tiki_taka", pelota, dt)
-    if not hasattr(equipo_rival, 'tactica_actual'):
-        aplicar_tactica_a_equipo(equipo_rival, "catenaccio", pelota, dt)
+    # Asegurar que cada equipo tenga su objeto de táctica
+    for equipo in [equipo_local, equipo_rival]:
+        if not hasattr(equipo, 'tactica_obj'):
+            # Obtener el nombre de la táctica actual (si no existe, usar "tiki_taka")
+            tactica_nombre = getattr(equipo, 'tactica_actual', 'tiki_taka')
+            # Obtener la clase de táctica del registro
+            clase_tactica = TACTICAS_CLASES.get(tactica_nombre)
+            if clase_tactica is None:
+                clase_tactica = TikiTaka  # fallback
+            equipo.tactica_obj = clase_tactica()
+            # También aseguramos que el equipo tenga el nombre de la táctica actual
+            equipo.tactica_actual = tactica_nombre
 
-    # Actualizar jugadores según su rol y posesión
-    _actualizar_equipo_con_roles(equipo_local, equipo_rival, pelota, dt, jugador_con_balon, es_local=True)
-    _actualizar_equipo_con_roles(equipo_rival, equipo_local, pelota, dt, jugador_con_balon, es_local=False)
+    # Actualizar cada equipo usando su táctica
+    _actualizar_equipo_con_tactica(equipo_local, equipo_rival, pelota, dt, jugador_con_balon)
+    _actualizar_equipo_con_tactica(equipo_rival, equipo_local, pelota, dt, jugador_con_balon)
 
-    # Porteros
+    # Actualizar porteros (independiente de táctica)
     _actualizar_portero(equipo_local, 'left', dt, pelota)
     _actualizar_portero(equipo_rival, 'right', dt, pelota)
 
-    # Cansancio
+    # Aplicar fatiga
     _aplicar_cansancio(equipo_local, dt)
     _aplicar_cansancio(equipo_rival, dt)
 
@@ -144,250 +115,21 @@ def actualizar_ia(equipo_local, equipo_rival, pelota, dt, tiempo_partido=90):
         conducir_balon(jugador_con_balon, pelota, dt)
 
 
-# ------------------------------------------------------------
-#  Actualización de equipos con roles y lógica de posesión
-# ------------------------------------------------------------
-def _actualizar_equipo_con_roles(equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local):
+def _actualizar_equipo_con_tactica(equipo, equipo_rival, pelota, dt, jugador_con_balon):
     """
-    Actualiza cada jugador según su rol y si el equipo tiene la posesión.
+    Aplica los métodos de la táctica al equipo: defensas, mediocampistas y delanteros.
     """
-    tiene_posesion = jugador_con_balon is not None and jugador_con_balon.equipo == equipo.nombre
-    tactica_nombre = getattr(equipo, 'tactica_actual', 'tiki_taka')
-    tactica = TACTICAS.get(tactica_nombre, TACTICAS["tiki_taka"])
-    profundidad = tactica.params.get("profundidad_defensiva", 0.5)
-    altura_delanteros_def = obtener_altura_delanteros_defensiva(equipo)
-
-    for i, jug in enumerate(equipo.jugadores):
-        if jug.es_controlado:
-            continue
-        if hasattr(jug, 'expulsado') and jug.expulsado:
-            continue
-        if hasattr(jug, 'lesionado') and jug.lesionado:
-            continue
-
-        # Determinar rol según índice
-        if i == 0:
-            continue  # portero
-        elif i < 5:
-            rol = "defensa"
-        elif i < 9:
-            rol = "mediocampista"
-        else:
-            rol = "delantero"
-
-        # Comportamiento según rol y posesión
-        if rol == "defensa":
-            _actualizar_defensa(jug, equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local, tiene_posesion, profundidad)
-        elif rol == "mediocampista":
-            _actualizar_mediocampista(jug, equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local, tiene_posesion, profundidad)
-        else:  # delantero
-            _actualizar_delantero(jug, equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local, tiene_posesion, profundidad, altura_delanteros_def)
+    tactica = equipo.tactica_obj
+    # Actualizar defensas (índices 1-4)
+    tactica.actualizar_defensa(equipo, equipo_rival, pelota, dt, jugador_con_balon)
+    # Actualizar mediocampistas (índices 5-8)
+    tactica.actualizar_mediocampistas(equipo, equipo_rival, pelota, dt, jugador_con_balon)
+    # Actualizar delanteros (índices 9-10)
+    tactica.actualizar_delanteros(equipo, equipo_rival, pelota, dt, jugador_con_balon)
 
 
 # ------------------------------------------------------------
-#  Defensa: repliegue en bloque y presión selectiva
-# ------------------------------------------------------------
-def _actualizar_defensa(jug, equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local, tiene_posesion, profundidad):
-    """Defensa: retrocede en bloque, el más cercano presiona, los demás cierran espacios."""
-    usar_sprint = False
-    poseedor = None
-    if jugador_con_balon is not None and jugador_con_balon.equipo != equipo.nombre:
-        poseedor = jugador_con_balon
-        dist = distancia_objetos(jug, poseedor)
-        # Usar sprint solo si está cerca del poseedor y la fatiga lo permite
-        if dist < 200 and dist > 50 and jug.stats.fatiga < 60:
-            usar_sprint = True
-
-    velocidad_base = _get_velocidad_efectiva(jug, factor=0.6, sprint=usar_sprint)
-    bx, by = _posicion_base(jug.numero, FORMACION_LOCAL if es_local else FORMACION_RIVAL)
-
-    if not tiene_posesion and poseedor is not None:
-        # ---- EL RIVAL ATACA: REPLIEGUE EN BLOQUE ----
-        porteria_x = 50 if es_local else SCREEN_WIDTH - 50
-        # Profundidad: cuanto mayor, más atrás
-        if es_local:
-            bx = porteria_x + (bx - porteria_x) * (1 - profundidad * 0.7)
-        else:
-            bx = porteria_x - (porteria_x - bx) * (1 - profundidad * 0.7)
-
-        # El defensa más cercano al poseedor sale a presionar (si está dentro de su zona)
-        dist = distancia_objetos(jug, poseedor)
-        # Solo presiona si está dentro de su área de influencia (radio 200)
-        if dist < 180:
-            vx, vy = mover_hacia(jug, poseedor, velocidad_base * 1.1, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-            return
-
-        # Si no presiona, se mueve a su posición defensiva, pero con tendencia a cerrar al centro
-        # para reducir espacios entre defensas
-        centro_y = SCREEN_HEIGHT / 2
-        # Ajustar la Y para cerrar hacia el centro (efecto acordeón)
-        diff_centro = by - centro_y
-        by -= diff_centro * 0.3  # se acerca al centro un 30%
-
-        destino = type('obj', (object,), {'x': bx, 'y': by})()
-        if distancia_objetos(jug, destino) > 10:
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.8, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-        else:
-            jug.establecer_velocidad(0, 0)
-            jug.actualizar(dt)
-    else:
-        # ---- EL EQUIPO TIENE EL BALÓN: SUBIR PARA APOYAR ----
-        if es_local:
-            bx += 50
-        else:
-            bx -= 50
-        destino = type('obj', (object,), {'x': bx, 'y': by})()
-        if distancia_objetos(jug, destino) > 10:
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.4, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-        else:
-            jug.establecer_velocidad(0, 0)
-            jug.actualizar(dt)
-
-
-# ------------------------------------------------------------
-#  Mediocampista: presión en zona y repliegue
-# ------------------------------------------------------------
-def _actualizar_mediocampista(jug, equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local, tiene_posesion, profundidad):
-    """Mediocampista: presiona solo si el poseedor está en su zona, si no retrocede."""
-    usar_sprint = False
-    poseedor = None
-    if jugador_con_balon is not None and jugador_con_balon.equipo != equipo.nombre:
-        poseedor = jugador_con_balon
-        dist = distancia_objetos(jug, poseedor)
-        if dist < 250 and dist > 80 and jug.stats.fatiga < 65:
-            usar_sprint = True
-
-    velocidad_base = _get_velocidad_efectiva(jug, factor=0.7, sprint=usar_sprint)
-    bx, by = _posicion_base(jug.numero, FORMACION_LOCAL if es_local else FORMACION_RIVAL)
-
-    if tiene_posesion:
-        # ---- EQUIPO CON BALÓN: DESMARQUE ----
-        if jug.tiene_balon:
-            porteria_x = SCREEN_WIDTH if es_local else 0
-            porteria_y = SCREEN_HEIGHT // 2
-            destino = type('obj', (object,), {'x': porteria_x, 'y': porteria_y})()
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.9, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-            if jug.stats.fatiga < 70 and random.random() < 0.04:
-                _intentar_pase_ia(jug, equipo, pelota)
-            return
-
-        # Sin balón: moverse para ofrecer pase
-        if jugador_con_balon is not None and jugador_con_balon.equipo == equipo.nombre:
-            angulo = math.atan2(jug.y - jugador_con_balon.y, jug.x - jugador_con_balon.x)
-            angulo += random.uniform(-0.8, 0.8)
-            radio = 120 + random.uniform(0, 30)
-            destino_x = jugador_con_balon.x + math.cos(angulo) * radio
-            destino_y = jugador_con_balon.y + math.sin(angulo) * radio
-            destino_x = max(PLAYER_RADIUS, min(SCREEN_WIDTH - PLAYER_RADIUS, destino_x))
-            destino_y = max(PLAYER_RADIUS, min(SCREEN_HEIGHT - PLAYER_RADIUS, destino_y))
-            destino = type('obj', (object,), {'x': destino_x, 'y': destino_y})()
-            if distancia_objetos(jug, destino) > 15:
-                vx, vy = mover_hacia(jug, destino, velocidad_base * 0.8, dt)
-                jug.establecer_velocidad(vx, vy)
-                jug.actualizar(dt)
-                return
-
-        destino = type('obj', (object,), {'x': bx, 'y': by})()
-        if distancia_objetos(jug, destino) > 15:
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.4, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-    else:
-        # ---- RIVAL CON BALÓN: PRESIÓN EN ZONA O REPLIEGUE ----
-        if poseedor is not None:
-            dist = distancia_objetos(jug, poseedor)
-            # Solo presiona si el poseedor está en su zona de influencia (cerca de su posición base)
-            if dist < 250:
-                vx, vy = mover_hacia(jug, poseedor, velocidad_base * 1.0, dt)
-                jug.establecer_velocidad(vx, vy)
-                jug.actualizar(dt)
-                return
-
-        # Retroceder a posición defensiva (más atrás)
-        if es_local:
-            bx = max(PLAYER_RADIUS, bx - 40 * (1 - profundidad))
-        else:
-            bx = min(SCREEN_WIDTH - PLAYER_RADIUS, bx + 40 * (1 - profundidad))
-        destino = type('obj', (object,), {'x': bx, 'y': by})()
-        if distancia_objetos(jug, destino) > 15:
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.6, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-
-
-# ------------------------------------------------------------
-#  Delantero: presión en campo propio, ataque en campo rival
-# ------------------------------------------------------------
-def _actualizar_delantero(jug, equipo, equipo_rival, pelota, dt, jugador_con_balon, es_local, tiene_posesion, profundidad, altura_delanteros_def):
-    """Delantero: presiona al poseedor si está en campo propio, si no se mantiene arriba."""
-    usar_sprint = False
-    poseedor = None
-    if jugador_con_balon is not None and jugador_con_balon.equipo != equipo.nombre:
-        poseedor = jugador_con_balon
-        dist = distancia_objetos(jug, poseedor)
-        if dist < 200 and dist > 80 and jug.stats.fatiga < 60:
-            usar_sprint = True
-
-    velocidad_base = _get_velocidad_efectiva(jug, factor=0.8, sprint=usar_sprint)
-    porteria_x = SCREEN_WIDTH if es_local else 0
-    porteria_y = SCREEN_HEIGHT // 2
-
-    if tiene_posesion:
-        # ---- EQUIPO CON BALÓN: BUSCAR GOL ----
-        if jug.tiene_balon:
-            destino = type('obj', (object,), {'x': porteria_x, 'y': porteria_y})()
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 1.0, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-            if distancia_objetos(jug, destino) < 250 and random.random() < 0.025:
-                ejecutar_tiro(jug, pelota)
-            return
-
-        # Sin balón: desmarcarse en área rival
-        angulo = random.uniform(-1.2, 1.2)
-        radio = 80 + random.uniform(0, 50)
-        destino_x = porteria_x + math.cos(angulo) * radio
-        destino_y = porteria_y + math.sin(angulo) * radio
-        destino_x = max(PLAYER_RADIUS, min(SCREEN_WIDTH - PLAYER_RADIUS, destino_x))
-        destino_y = max(PLAYER_RADIUS, min(SCREEN_HEIGHT - PLAYER_RADIUS, destino_y))
-        destino = type('obj', (object,), {'x': destino_x, 'y': destino_y})()
-        if distancia_objetos(jug, destino) > 15:
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.9, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-    else:
-        # ---- RIVAL CON BALÓN: PRESIÓN EN CAMPO PROPIO ----
-        # Si el poseedor está en nuestro campo (mitad defensiva), presionar
-        if poseedor is not None:
-            # Determinar si está en campo propio
-            if (es_local and poseedor.x < SCREEN_WIDTH * 0.6) or (not es_local and poseedor.x > SCREEN_WIDTH * 0.4):
-                dist = distancia_objetos(jug, poseedor)
-                if dist < 200 and jug.stats.fatiga < 70:
-                    vx, vy = mover_hacia(jug, poseedor, velocidad_base * 0.8, dt)
-                    jug.establecer_velocidad(vx, vy)
-                    jug.actualizar(dt)
-                    return
-
-        # Si no presiona, retroceder según altura_delanteros_def (0=arriba, 1=abajo)
-        retroceso_x = porteria_x + (SCREEN_WIDTH // 2 - porteria_x) * (1 - altura_delanteros_def * 0.7)
-        retroceso_y = porteria_y + random.uniform(-50, 50)
-        destino = type('obj', (object,), {'x': retroceso_x, 'y': retroceso_y})()
-        if distancia_objetos(jug, destino) > 15:
-            vx, vy = mover_hacia(jug, destino, velocidad_base * 0.5, dt)
-            jug.establecer_velocidad(vx, vy)
-            jug.actualizar(dt)
-
-
-# ------------------------------------------------------------
-#  Portero (mejorado)
+#  Portero (genérico)
 # ------------------------------------------------------------
 def _actualizar_portero(equipo, lado, dt, pelota):
     if not equipo.jugadores:
@@ -422,25 +164,6 @@ def _actualizar_portero(equipo, lado, dt, pelota):
     portero.x = base_x
     portero.actualizar(dt)
     aplicar_limites_campo(portero)
-
-
-# ------------------------------------------------------------
-#  Pase entre bots (IA)
-# ------------------------------------------------------------
-def _intentar_pase_ia(jug, equipo, pelota):
-    if not jug.tiene_balon:
-        return
-    mejor = None
-    mejor_dist = float('inf')
-    for comp in equipo.jugadores:
-        if comp == jug or comp.tiene_balon:
-            continue
-        dist = distancia_objetos(jug, comp)
-        if 50 < dist < 200 and dist < mejor_dist:
-            mejor_dist = dist
-            mejor = comp
-    if mejor is not None and random.random() < 0.4:
-        ejecutar_pase(jug, mejor, pelota, es_largo=False)
 
 
 # ------------------------------------------------------------
