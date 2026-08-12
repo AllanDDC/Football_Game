@@ -29,7 +29,7 @@ from .physics import (
     probabilidad_robo
 )
 # Importar desde tactics.base para evitar circularidad
-from .tactics.base import _posicion_base, _get_velocidad_efectiva
+from .tactics.base import _posicion_base, _get_velocidad_efectiva, decidir_sprint  # <-- importar decidir_sprint
 from .player_stats import PlayerStats
 from .ball_control import ejecutar_pase, intentar_recibir, ejecutar_tiro
 # Importar build-up manager
@@ -117,20 +117,6 @@ def _actualizar_equipo_con_buildup_o_tactica(equipo, equipo_rival, pelota, dt, j
         equipo.build_up_manager.actualizar(
             equipo_rival, pelota, dt, jugador_con_balon, get_velocidad
         )
-        # Nota: el manager ya mueve a los jugadores, así que no necesitamos
-        # llamar a las funciones de la táctica para estos jugadores.
-        # Sin embargo, los jugadores que no fueron movidos por el manager
-        # (por ejemplo, porque ninguna estrategia aplicó) aún deben tener
-        # un movimiento base. Para eso, podemos llamar a la táctica ofensiva
-        # (desmarque básico) solo para esos jugadores.
-        # Por simplicidad, aquí delegamos completamente en el manager.
-        # Si el manager no mueve a algún jugador, se quedará quieto.
-        # Podríamos añadir una estrategia de respaldo en el manager.
-        # En la implementación actual del manager, si ninguna estrategia
-        # aplica, el jugador no se mueve. Para evitar esto, añadimos un
-        # movimiento de "apoyo básico" dentro del manager. Pero eso ya está
-        # en las estrategias (bandas, pasillos, etc.) que cubren todos los roles.
-        # Así que está bien.
         return
 
     # ---- FASE DEFENSIVA: usar táctica ----
@@ -140,65 +126,6 @@ def _actualizar_equipo_con_buildup_o_tactica(equipo, equipo_rival, pelota, dt, j
     tactica.actualizar_mediocampistas(equipo, equipo_rival, pelota, dt, jugador_con_balon)
     # Actualizar delanteros (índices 9-10)
     tactica.actualizar_delanteros(equipo, equipo_rival, pelota, dt, jugador_con_balon)
-
-
-# ------------------------------------------------------------
-#  Decisión de sprint para bots (usada por tácticas y build-up)
-# ------------------------------------------------------------
-def decidir_sprint(jug, poseedor, pelota, equipo, equipo_rival):
-    """
-    Decide si un jugador debe usar sprint en función del contexto.
-    Retorna True si debería sprintar, False en caso contrario.
-    """
-    # Si está muy cansado, no sprintar
-    if hasattr(jug, 'stats') and jug.stats.fatiga > 80:
-        return False
-
-    # Caso 1: Presión al poseedor (distancia < 150 y acorralado)
-    if poseedor is not None and poseedor.equipo != equipo.nombre:
-        dist = distancia_objetos(jug, poseedor)
-        if dist < 150:
-            # Si el poseedor está cerca de la banda o encerrado
-            if poseedor.x < 60 or poseedor.x > SCREEN_WIDTH - 60 or poseedor.y < 60 or poseedor.y > SCREEN_HEIGHT - 60:
-                return True
-            # Si el poseedor tiene pocos compañeros cerca (acorralado)
-            companeros_cerca = sum(1 for comp in equipo_rival.jugadores if distancia_objetos(poseedor, comp) < 80)
-            if companeros_cerca < 2:
-                return True
-            # Si el jugador está muy cerca (< 80), sprint para robar
-            if dist < 80:
-                return True
-            return False
-
-    # Caso 2: Balón suelto (cerca y alcanzable)
-    if pelota.dueno is None and not pelota.pegada:
-        dist_balon = distancia_objetos(jug, pelota)
-        if dist_balon < 100 and dist_balon > 20:
-            return True
-
-    # Caso 3: Contraataque (equipo recupera y hay espacio adelante)
-    poseedor_propio = poseedor is not None and poseedor.equipo == equipo.nombre
-    if poseedor_propio and not jug.tiene_balon:
-        # Delanteros o extremos en posición de contraataque
-        if jug.numero >= 9:  # delanteros
-            porteria_x = SCREEN_WIDTH if equipo.es_local else 0
-            if (equipo.es_local and jug.x < SCREEN_WIDTH * 0.7) or (not equipo.es_local and jug.x > SCREEN_WIDTH * 0.3):
-                return True
-        # Mediocampistas que se proyectan
-        elif 5 <= jug.numero <= 8:
-            if (equipo.es_local and jug.x < SCREEN_WIDTH * 0.6) or (not equipo.es_local and jug.x > SCREEN_WIDTH * 0.4):
-                return True
-
-    # Caso 4: Cierre de espacios en defensa (si hay un hueco)
-    if poseedor is not None and poseedor.equipo != equipo.nombre:
-        # Si es defensa y está muy lejos de la línea
-        if jug.numero < 5:
-            # Obtener posición base de la línea defensiva
-            _, by = _posicion_base(jug.numero, equipo.es_local)
-            if abs(jug.y - by) > 80:
-                return True
-
-    return False
 
 
 # ------------------------------------------------------------

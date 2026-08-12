@@ -7,7 +7,7 @@ cuando su equipo tiene la pelota.
 
 import random
 from ..physics import mover_hacia, distancia_objetos
-from ..ai import decidir_sprint
+from ..tactics.base import decidir_sprint
 from .bandas import EstrategiaBandas
 from .arrastre import EstrategiaArrastre
 from .pasillos import EstrategiaPasillos
