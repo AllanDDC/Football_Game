@@ -65,7 +65,7 @@ def _get_velocidad_efectiva(jug, factor=0.5, sprint=False):
 
 
 # ------------------------------------------------------------
-#  Clase base de táctica (sin cambios respecto a la anterior)
+#  Clase base de táctica (con métodos de conveniencia)
 # ------------------------------------------------------------
 class TacticaBase:
     def __init__(self, nombre, params):
@@ -75,6 +75,14 @@ class TacticaBase:
     def obtener_param(self, key, default=None):
         return self.params.get(key, default)
 
+    # Métodos de conveniencia que delegan en las funciones globales
+    def _posicion_base(self, indice, es_local):
+        return _posicion_base(indice, es_local)
+
+    def _velocidad_efectiva(self, jug, factor=0.5, sprint=False):
+        return _get_velocidad_efectiva(jug, factor, sprint)
+
+    # Métodos que deben ser implementados por las subclases
     def actualizar_defensa(self, equipo, equipo_rival, pelota, dt, jugador_con_balon):
         raise NotImplementedError
 
