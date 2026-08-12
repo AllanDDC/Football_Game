@@ -6,14 +6,16 @@ cuando su equipo tiene la pelota.
 """
 
 import random
+import math
 from ..physics import mover_hacia, distancia_objetos
-from ..tactics.base import decidir_sprint
+from ..ai import decidir_sprint
 from .bandas import EstrategiaBandas
 from .arrastre import EstrategiaArrastre
 from .pasillos import EstrategiaPasillos
 from .avance_vertical import EstrategiaAvanceVertical
 from .rondos import EstrategiaRondos
 from .triangulacion import EstrategiaTriangulacion
+from ..config import SCREEN_WIDTH, SCREEN_HEIGHT, PLAYER_RADIUS
 
 
 class BuildUpManager:
@@ -23,9 +25,6 @@ class BuildUpManager:
     """
 
     def __init__(self, equipo):
-        """
-        :param equipo: Equipo al que pertenecen los jugadores.
-        """
         self.equipo = equipo
         self.es_local = equipo.es_local
 
@@ -33,55 +32,43 @@ class BuildUpManager:
         self.estrategias_por_rol = {
             "defensa": [
                 EstrategiaBandas(),        # apertura en banda
-                EstrategiaRondos(),        # rondos en zona defensiva
                 EstrategiaArrastre(),      # arrastre de marcas
+                EstrategiaAvanceVertical(),# subida ofensiva (nuevo)
             ],
             "mediocampista": [
-                EstrategiaTriangulacion(), # pases de 3
-                EstrategiaPasillos(),      # creación de pasillos
-                EstrategiaRondos(),        # rondos
-                EstrategiaArrastre(),      # arrastre
-                EstrategiaAvanceVertical(),# proyección ofensiva
-                EstrategiaBandas(),        # apertura en banda
+                EstrategiaTriangulacion(),
+                EstrategiaPasillos(),
+                EstrategiaRondos(),
+                EstrategiaArrastre(),
+                EstrategiaAvanceVertical(),
+                EstrategiaBandas(),
             ],
             "delantero": [
-                EstrategiaAvanceVertical(),# profundidad
-                EstrategiaPasillos(),      # entre líneas
-                EstrategiaArrastre(),      # arrastre
-                EstrategiaBandas(),        # apertura en banda
+                EstrategiaAvanceVertical(),
+                EstrategiaPasillos(),
+                EstrategiaArrastre(),
+                EstrategiaBandas(),
             ],
         }
 
-        # Para evitar que siempre se ejecute la misma estrategia,
-        # guardamos un contador de turnos por jugador.
         self.contador_estrategias = {}
 
     def actualizar(self, equipo_rival, pelota, dt, poseedor, get_velocidad):
-        """
-        Aplica estrategias ofensivas a todos los jugadores del equipo.
-
-        :param equipo_rival: Equipo contrario.
-        :param pelota: Objeto Pelota.
-        :param dt: Delta time.
-        :param poseedor: Jugador que tiene el balón (o None).
-        :param get_velocidad: Función (jug, factor, sprint) -> velocidad.
-        """
         if poseedor is None or poseedor.equipo != self.equipo.nombre:
-            # Si no hay poseedor o no es de nuestro equipo, no hacer nada.
             return
 
-        # Procesar cada jugador (excepto portero y el controlado por humano)
+        # Procesar cada jugador (excepto portero y humano)
         for jug in self.equipo.jugadores:
-            if jug.numero == 0:  # portero
+            if jug.numero == 0:
                 continue
-            if jug.es_controlado:  # jugador humano
+            if jug.es_controlado:
                 continue
             if hasattr(jug, 'expulsado') and jug.expulsado:
                 continue
             if hasattr(jug, 'lesionado') and jug.lesionado:
                 continue
 
-            # Determinar rol según índice
+            # Determinar rol
             if jug.numero < 5:
                 rol = "defensa"
             elif jug.numero < 9:
@@ -89,15 +76,13 @@ class BuildUpManager:
             else:
                 rol = "delantero"
 
-            # Obtener lista de estrategias para este rol
             estrategias = self.estrategias_por_rol.get(rol, [])
-
-            # Obtener el índice de estrategia actual para este jugador (rotación)
             idx = self.contador_estrategias.get(jug, 0)
-            # Intentar aplicar estrategias en orden rotativo
+
+            destino = None
+            # Intentar estrategias en orden rotativo
             for _ in range(len(estrategias)):
                 estrategia = estrategias[idx % len(estrategias)]
-                # Preparar contexto
                 contexto = {
                     'poseedor': poseedor,
                     'pelota': pelota,
@@ -107,48 +92,69 @@ class BuildUpManager:
                     'get_velocidad': get_velocidad,
                     'es_local': self.es_local,
                 }
-                # Ejecutar estrategia
                 destino = estrategia.ejecutar(jug, contexto)
                 if destino is not None:
-                    # Si la estrategia devuelve un destino, aplicarlo
-                    destino_x, destino_y = destino
-                    self._mover_jugador(jug, destino_x, destino_y, dt, get_velocidad, poseedor, pelota, equipo_rival)
-                    # Avanzar el contador para la próxima vez
-                    self.contador_estrategias[jug] = (idx + 1) % len(estrategias)
                     break
-                # Si no se aplicó, probar la siguiente estrategia (rotar)
                 idx = (idx + 1) % len(estrategias)
-            else:
-                # Si ninguna estrategia dio destino, no hacer nada
-                pass
 
-    def _mover_jugador(self, jug, destino_x, destino_y, dt, get_velocidad, poseedor, pelota, equipo_rival):
+            # Si ninguna estrategia dio destino, usar estrategia por defecto
+            if destino is None:
+                destino = self._estrategia_defecto(jug, poseedor, equipo_rival)
+
+            if destino is not None:
+                destino_x, destino_y = destino
+                self._mover_jugador(jug, destino_x, destino_y, dt, get_velocidad,
+                                    poseedor, pelota, equipo_rival)
+                # Avanzar contador solo si se movió
+                self.contador_estrategias[jug] = (idx + 1) % len(estrategias) if estrategias else 0
+
+    def _estrategia_defecto(self, jug, poseedor, equipo_rival):
         """
-        Aplica movimiento al jugador hacia el destino, decidiendo si sprintar.
+        Estrategia de respaldo: moverse hacia el poseedor en ángulo,
+        o avanzar verticalmente si está lejos.
         """
-        # Decidir si debe sprintar en función del contexto
+        # Si el jugador está muy lejos del poseedor, avanzar verticalmente
+        dist_poseedor = distancia_objetos(jug, poseedor)
+        if dist_poseedor > 250:
+            porteria_x = SCREEN_WIDTH if self.es_local else 0
+            porteria_y = SCREEN_HEIGHT / 2
+            # Moverse hacia la portería rival en diagonal
+            angulo = math.atan2(porteria_y - jug.y, porteria_x - jug.x)
+            angulo += random.uniform(-0.3, 0.3)
+            radio = 80 + random.uniform(0, 40)
+            destino_x = jug.x + math.cos(angulo) * radio
+            destino_y = jug.y + math.sin(angulo) * radio
+            return (destino_x, destino_y)
+
+        # Si está cerca, moverse para ofrecer línea de pase (en ángulo)
+        angulo = math.atan2(jug.y - poseedor.y, jug.x - poseedor.x)
+        angulo += random.uniform(-0.8, 0.8)
+        radio = 60 + random.uniform(0, 30)
+        destino_x = poseedor.x + math.cos(angulo) * radio
+        destino_y = poseedor.y + math.sin(angulo) * radio
+        return (destino_x, destino_y)
+
+    def _mover_jugador(self, jug, destino_x, destino_y, dt, get_velocidad,
+                       poseedor, pelota, equipo_rival):
+        # Decidir sprint
         sprint = decidir_sprint(jug, poseedor, pelota, self.equipo, equipo_rival)
 
-        # Obtener velocidad efectiva
-        factor_base = 0.7
-        # Si es delantero o extremo, un poco más rápido
-        if jug.numero >= 9:
-            factor_base = 0.8
-        elif jug.numero < 5:
-            factor_base = 0.6
+        # Velocidad según rol
+        if jug.numero < 5:
+            factor = 0.6
+        elif jug.numero < 9:
+            factor = 0.7
+        else:
+            factor = 0.8
 
-        velocidad = get_velocidad(jug, factor=factor_base, sprint=sprint)
+        velocidad = get_velocidad(jug, factor=factor, sprint=sprint)
 
-        # Crear objeto destino
         destino = type('obj', (object,), {'x': destino_x, 'y': destino_y})
-
-        # Si ya está muy cerca, detener
         if distancia_objetos(jug, destino) < 5:
             jug.establecer_velocidad(0, 0)
             jug.actualizar(dt)
             return
 
-        # Mover hacia el destino
         vx, vy = mover_hacia(jug, destino, velocidad, dt)
         jug.establecer_velocidad(vx, vy)
         jug.actualizar(dt)
