@@ -83,9 +83,11 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
 
     if exito:
         if receptor:
-            velocidad_base = 200 + 100 * (1 - precision)
+            # Velocidad reducida para hacer los pases más lentos y realistas
+            # Base: 150 para pases cortos, 220 para largos (antes 200 y 300)
+            velocidad_base = 150 + 80 * (1 - precision)
             if es_largo:
-                velocidad_base *= 1.5  # más rápido en pases largos
+                velocidad_base *= 1.3  # ligeramente más rápido, pero no tanto como antes (1.5)
             dx = receptor.x - pasador.x
             dy = receptor.y - pasador.y
             dist = math.hypot(dx, dy)
@@ -101,11 +103,11 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
 
             # Para pases largos, la pelota va más alta (simulación en 2D: efecto de arco)
             if es_largo:
-                pelota.vy -= 50  # un poco más arriba
+                pelota.vy -= 40  # un poco más arriba (antes -50)
         else:
             # Pase al espacio: dirección aleatoria
             angulo = random.uniform(0, 2 * math.pi)
-            velocidad = 150 + random.uniform(0, 100)
+            velocidad = 100 + random.uniform(0, 80)  # reducido de 150-250
             pelota.vx = math.cos(angulo) * velocidad
             pelota.vy = math.sin(angulo) * velocidad
             pelota.x = pasador.x + math.cos(angulo) * (pasador.radio + pelota.radio + 20)
@@ -117,9 +119,9 @@ def ejecutar_pase(pasador, receptor, pelota, es_largo=False):
         pasador.tiene_balon = False
         return True
     else:
-        # Pase fallido: la pelota se pierde
+        # Pase fallido: la pelota se pierde (ya era lenta)
         angulo = random.uniform(0, 2 * math.pi)
-        velocidad = random.uniform(50, 150)
+        velocidad = random.uniform(50, 120)  # reducido de 50-150
         pelota.vx = math.cos(angulo) * velocidad
         pelota.vy = math.sin(angulo) * velocidad
         pelota.x = pasador.x + math.cos(angulo) * (pasador.radio + pelota.radio + 10)
@@ -215,7 +217,7 @@ def intentar_recibir(receptor, pelota):
     else:
         # Recepción fallida: la pelota rebota
         angulo = random.uniform(0, 2 * math.pi)
-        velocidad = random.uniform(30, 80)
+        velocidad = random.uniform(30, 60)  # reducido de 30-80
         pelota.vx = math.cos(angulo) * velocidad
         pelota.vy = math.sin(angulo) * velocidad
         pelota.pegada = False
@@ -266,8 +268,8 @@ def ejecutar_tiro(tirador, pelota):
     if hasattr(tirador, 'stats'):
         tirador.stats.registrar_tiro(exito)
 
-    # Potencia del tiro
-    potencia = 300 + 300 * (tirador.stats.tiro / 100.0 if hasattr(tirador, 'stats') else 0.5)
+    # Potencia del tiro (ligeramente reducida para dar más realismo)
+    potencia = 250 + 250 * (tirador.stats.tiro / 100.0 if hasattr(tirador, 'stats') else 0.5)
     potencia *= (1.0 - tirador.stats.fatiga / 300.0 if hasattr(tirador, 'stats') else 1.0)
 
     # Dirección del tiro
