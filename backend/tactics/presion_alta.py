@@ -13,7 +13,7 @@ import math
 from .base import TacticaBase
 from ..physics import mover_hacia, distancia_objetos
 from ..config import PLAYER_SPEED, SCREEN_WIDTH, SCREEN_HEIGHT, PLAYER_RADIUS
-from ..ai import _posicion_base, _get_velocidad_efectiva
+from .base import _posicion_base, _get_velocidad_efectiva
 
 
 class PresionAlta(TacticaBase):

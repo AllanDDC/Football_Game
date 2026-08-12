@@ -1,10 +1,4 @@
 # backend/ai.py
-"""
-Módulo de inteligencia artificial para jugadores no controlados.
-Ahora utiliza un sistema táctico modular, delegando el comportamiento
-defensivo, de mediocampo y ofensivo en las clases de táctica.
-"""
-
 import math
 import random
 from .config import (
@@ -28,45 +22,19 @@ from .physics import (
     probabilidad_regate,
     probabilidad_robo
 )
-from .tactics import TACTICAS_CLASES
-from .tactics.tiki_taka import TikiTaka  # fallback
+from .tactics.base import _posicion_base, _get_velocidad_efectiva  # importar desde base
 from .player_stats import PlayerStats
 from .ball_control import ejecutar_pase, intentar_recibir, ejecutar_tiro
-
-
-# ------------------------------------------------------------
-#  Funciones auxiliares (compartidas con las tácticas)
-# ------------------------------------------------------------
-def _posicion_base(indice, formacion):
-    """Retorna la posición base (x, y) en píxeles para un jugador dado su índice y formación."""
-    from .tactics.base import FORMACION_LOCAL, FORMACION_RIVAL
-    if indice < len(formacion):
-        fx, fy = formacion[indice]
-        return (fx * SCREEN_WIDTH, fy * SCREEN_HEIGHT)
-    return (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-
-
-def _get_velocidad_efectiva(jug, factor=0.5, sprint=False):
-    """
-    Calcula la velocidad efectiva del jugador considerando estadísticas, fatiga y sprint.
-    Esta función se usa tanto desde ai.py como desde las tácticas.
-    """
-    velocidad_base = PLAYER_SPEED * factor
-    if hasattr(jug, 'stats'):
-        stat_vel = jug.stats.velocidad / 100.0
-        velocidad_base = PLAYER_SPEED * (factor * 0.4 + stat_vel * factor * 0.6)
-        if sprint:
-            velocidad_base *= SPRINT_MULTIPLIER
-        if jug.stats.fatiga > 30:
-            factor_fatiga = 1.0 - (jug.stats.fatiga - 30) / 100.0 * 0.5
-            velocidad_base *= max(0.4, factor_fatiga)
-    return velocidad_base
 
 
 # ------------------------------------------------------------
 #  Función principal de actualización de IA (usa tácticas)
 # ------------------------------------------------------------
 def actualizar_ia(equipo_local, equipo_rival, pelota, dt, tiempo_partido=90):
+    # Importar TACTICAS_CLASES aquí para evitar circularidad
+    from .tactics import TACTICAS_CLASES
+    from .tactics.tiki_taka import TikiTaka  # fallback
+
     # Identificar jugador humano (solo para referencia, no se usa en tácticas)
     jugador_humano = None
     jugador_con_balon = None
@@ -88,14 +56,11 @@ def actualizar_ia(equipo_local, equipo_rival, pelota, dt, tiempo_partido=90):
     # Asegurar que cada equipo tenga su objeto de táctica
     for equipo in [equipo_local, equipo_rival]:
         if not hasattr(equipo, 'tactica_obj'):
-            # Obtener el nombre de la táctica actual (si no existe, usar "tiki_taka")
             tactica_nombre = getattr(equipo, 'tactica_actual', 'tiki_taka')
-            # Obtener la clase de táctica del registro
             clase_tactica = TACTICAS_CLASES.get(tactica_nombre)
             if clase_tactica is None:
-                clase_tactica = TikiTaka  # fallback
+                clase_tactica = TikiTaka
             equipo.tactica_obj = clase_tactica()
-            # También aseguramos que el equipo tenga el nombre de la táctica actual
             equipo.tactica_actual = tactica_nombre
 
     # Actualizar cada equipo usando su táctica
@@ -116,15 +81,9 @@ def actualizar_ia(equipo_local, equipo_rival, pelota, dt, tiempo_partido=90):
 
 
 def _actualizar_equipo_con_tactica(equipo, equipo_rival, pelota, dt, jugador_con_balon):
-    """
-    Aplica los métodos de la táctica al equipo: defensas, mediocampistas y delanteros.
-    """
     tactica = equipo.tactica_obj
-    # Actualizar defensas (índices 1-4)
     tactica.actualizar_defensa(equipo, equipo_rival, pelota, dt, jugador_con_balon)
-    # Actualizar mediocampistas (índices 5-8)
     tactica.actualizar_mediocampistas(equipo, equipo_rival, pelota, dt, jugador_con_balon)
-    # Actualizar delanteros (índices 9-10)
     tactica.actualizar_delanteros(equipo, equipo_rival, pelota, dt, jugador_con_balon)
 
 
