@@ -1,5 +1,5 @@
 # backend/tactics/__init__.py
-from .base import TacticaBase
+from .base import TacticaBase, _posicion_base, _get_velocidad_efectiva
 from .catenaccio import Catenaccio
 from .tiki_taka import TikiTaka
 from .presion_alta import PresionAlta
@@ -8,7 +8,6 @@ from .total import Total
 from .jogo_bonito import JogoBonito
 from .bloque_bajo import BloqueBajo
 
-# Mapa de nombres a clases
 TACTICAS_CLASES = {
     "catenaccio": Catenaccio,
     "tiki_taka": TikiTaka,
