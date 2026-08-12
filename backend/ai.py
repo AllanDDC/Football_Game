@@ -213,3 +213,61 @@ def calcular_precision_pase(jugador, distancia_pase):
     factor_fatiga = 1.0 - (jugador.stats.fatiga / 200.0)
     precision = (stat_pase * 0.6 + 0.4) * factor_distancia * factor_fatiga
     return max(0.1, min(0.95, precision))
+
+# backend/ai.py (añadir al final)
+
+def decidir_sprint(jug, poseedor, pelota, equipo, equipo_rival):
+    """
+    Decide si un jugador debe usar sprint en función del contexto.
+    Retorna True si debería sprintar, False en caso contrario.
+    """
+    # Si está muy cansado, no sprintar
+    if hasattr(jug, 'stats') and jug.stats.fatiga > 80:
+        return False
+
+    # Caso 1: Presión al poseedor (distancia < 150 y acorralado)
+    if poseedor is not None and poseedor.equipo != equipo.nombre:
+        dist = distancia_objetos(jug, poseedor)
+        if dist < 150:
+            # Si el poseedor está cerca de la banda o encerrado
+            if poseedor.x < 60 or poseedor.x > SCREEN_WIDTH - 60 or poseedor.y < 60 or poseedor.y > SCREEN_HEIGHT - 60:
+                return True
+            # Si el poseedor tiene pocos compañeros cerca (acorralado)
+            companeros_cerca = sum(1 for comp in equipo_rival.jugadores if distancia_objetos(poseedor, comp) < 80)
+            if companeros_cerca < 2:
+                return True
+            # Si el jugador está muy cerca (< 80), sprint para robar
+            if dist < 80:
+                return True
+            return False
+
+    # Caso 2: Balón suelto (cerca y alcanzable)
+    if pelota.dueno is None and not pelota.pegada:
+        dist_balon = distancia_objetos(jug, pelota)
+        if dist_balon < 100 and dist_balon > 20:
+            return True
+
+    # Caso 3: Contraataque (equipo recupera y hay espacio adelante)
+    poseedor_propio = poseedor is not None and poseedor.equipo == equipo.nombre
+    if poseedor_propio and not jug.tiene_balon:
+        # Delanteros o extremos en posición de contraataque
+        if jug.numero >= 9:  # delanteros
+            porteria_x = SCREEN_WIDTH if equipo.es_local else 0
+            if (equipo.es_local and jug.x < SCREEN_WIDTH * 0.7) or (not equipo.es_local and jug.x > SCREEN_WIDTH * 0.3):
+                return True
+        # Mediocampistas que se proyectan
+        elif 5 <= jug.numero <= 8:
+            if (equipo.es_local and jug.x < SCREEN_WIDTH * 0.6) or (not equipo.es_local and jug.x > SCREEN_WIDTH * 0.4):
+                return True
+
+    # Caso 4: Cierre de espacios en defensa (si hay un hueco)
+    # Se detecta si el jugador está demasiado separado de sus compañeros defensivos
+    if poseedor is not None and poseedor.equipo != equipo.nombre:
+        # Si es defensa y está muy lejos de la línea
+        if jug.numero < 5:
+            # Obtener posición base de la línea defensiva
+            _, by = _posicion_base(jug.numero, equipo.es_local)
+            if abs(jug.y - by) > 80:
+                return True
+
+    return False

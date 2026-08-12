@@ -1,11 +1,14 @@
 # backend/tactics/base.py
 """
 Clase base para todas las tácticas y funciones auxiliares compartidas.
+Incluye método de movimiento con sprint automático.
 """
 
 import math
 from ..config import PLAYER_SPEED, SPRINT_MULTIPLIER, SCREEN_WIDTH, SCREEN_HEIGHT, PLAYER_RADIUS
 from ..physics import mover_hacia, distancia_objetos
+from ..ai import decidir_sprint  # <-- importar la función de decisión de sprint
+
 
 # ------------------------------------------------------------
 #  Formaciones (para usar en _posicion_base)
@@ -65,7 +68,7 @@ def _get_velocidad_efectiva(jug, factor=0.5, sprint=False):
 
 
 # ------------------------------------------------------------
-#  Clase base de táctica (con métodos de conveniencia)
+#  Clase base de táctica (con sprint integrado)
 # ------------------------------------------------------------
 class TacticaBase:
     def __init__(self, nombre, params):
@@ -75,12 +78,50 @@ class TacticaBase:
     def obtener_param(self, key, default=None):
         return self.params.get(key, default)
 
-    # Métodos de conveniencia que delegan en las funciones globales
     def _posicion_base(self, indice, es_local):
         return _posicion_base(indice, es_local)
 
     def _velocidad_efectiva(self, jug, factor=0.5, sprint=False):
         return _get_velocidad_efectiva(jug, factor, sprint)
+
+    def _mover_jugador(self, jug, destino_x, destino_y, dt,
+                       poseedor, pelota, equipo, equipo_rival,
+                       factor=0.7, fuerza_extra=1.0):
+        """
+        Mueve al jugador hacia (destino_x, destino_y) decidiendo automáticamente
+        si debe sprintar según el contexto. Este método debe ser usado por todas
+        las tácticas en lugar de llamar a mover_hacia directamente.
+
+        :param jug: Jugador a mover.
+        :param destino_x, destino_y: Coordenadas de destino.
+        :param dt: Delta time.
+        :param poseedor: Jugador que tiene el balón (o None).
+        :param pelota: Objeto Pelota.
+        :param equipo: Equipo del jugador.
+        :param equipo_rival: Equipo contrario.
+        :param factor: Factor de velocidad base (0.5-1.0).
+        :param fuerza_extra: Multiplicador extra (para situaciones de emergencia).
+        """
+        # 1. Decidir si sprintar
+        sprint = decidir_sprint(jug, poseedor, pelota, equipo, equipo_rival)
+
+        # 2. Calcular velocidad efectiva (con sprint)
+        velocidad = self._velocidad_efectiva(jug, factor=factor, sprint=sprint)
+        velocidad *= fuerza_extra
+
+        # 3. Crear objeto destino
+        destino = type('obj', (object,), {'x': destino_x, 'y': destino_y})
+
+        # 4. Si ya está muy cerca, detener
+        if distancia_objetos(jug, destino) < 5:
+            jug.establecer_velocidad(0, 0)
+            jug.actualizar(dt)
+            return
+
+        # 5. Mover hacia el destino
+        vx, vy = mover_hacia(jug, destino, velocidad, dt)
+        jug.establecer_velocidad(vx, vy)
+        jug.actualizar(dt)
 
     # Métodos que deben ser implementados por las subclases
     def actualizar_defensa(self, equipo, equipo_rival, pelota, dt, jugador_con_balon):
